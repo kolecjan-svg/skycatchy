@@ -185,7 +185,7 @@ export const DealCard = React.memo(function DealCard({ deal, index = 0 }: DealCa
               href={deal.link}
               target="_blank"
               rel="noopener noreferrer"
-              className="ml-auto flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+              className="ml-auto flex items-center gap-1 text-sm font-bold text-orange-500 font-inter transition-colors hover:text-orange-400"
             >
               {t("view_deal")} <ArrowRight className="h-3.5 w-3.5" />
             </a>
