@@ -1,0 +1,100 @@
+"use client";
+
+import { useLanguage, type Language } from "@/hooks/useLanguage";
+
+const UI_STRINGS = {
+  en: {
+    all_sources: "All sources",
+    all_sources_short: "Sources",
+    sources_selected: "sources selected",
+    search_placeholder: "Search deals...",
+    view_deal: "View Deal",
+    copy_link: "Copy link",
+    save_to_favorites: "Save to favorites",
+    remove_from_favorites: "Remove from favorites",
+    link_copied: "Link copied",
+    you_left_off_here: "You last visited here",
+    new_badge: "New",
+    deals_found: "deals found",
+    deal_found: "deal found",
+    no_deals_yet: "No deals yet",
+    no_deals_match: "No deals match your filters",
+    no_deals_hint: "Deals will appear here once RSS sources are fetched",
+    no_deals_filter_hint: "Try adjusting your search or filters",
+    reset_filters: "Reset filters",
+    favorites_title: "Your Favorites",
+    no_saved_deals: "No saved deals yet",
+    favorites_description: "Browse deals and tap the heart to save them here.",
+    browse_deals: "Browse deals",
+    cz_sources: "CZ",
+    sk_sources: "SK",
+    global_sources: "Global",
+    load_more: "Load more",
+  },
+  de: {
+    all_sources: "Alle Quellen",
+    all_sources_short: "Quellen",
+    sources_selected: "Quellen ausgewählt",
+    search_placeholder: "Deals suchen...",
+    view_deal: "Deal ansehen",
+    copy_link: "Link kopieren",
+    save_to_favorites: "Zu Favoriten hinzufügen",
+    remove_from_favorites: "Aus Favoriten entfernen",
+    link_copied: "Link kopiert",
+    you_left_off_here: "Hier hast du zuletzt aufgehört",
+    new_badge: "Neu",
+    deals_found: "Deals gefunden",
+    deal_found: "Deal gefunden",
+    no_deals_yet: "Noch keine Deals",
+    no_deals_match: "Keine Deals passen zu deinen Filtern",
+    no_deals_hint: "Deals erscheinen hier, sobald RSS-Quellen abgerufen werden",
+    no_deals_filter_hint: "Versuche deine Suche oder Filter anzupassen",
+    reset_filters: "Filter zurücksetzen",
+    favorites_title: "Deine Favoriten",
+    no_saved_deals: "Noch keine gespeicherten Angebote",
+    favorites_description: "Durchsuche Angebote und speichere sie mit dem Herz.",
+    browse_deals: "Angebote durchsuchen",
+    cz_sources: "CZ",
+    sk_sources: "SK",
+    global_sources: "Global",
+    load_more: "Mehr laden",
+  },
+  cs: {
+    all_sources: "Všechny zdroje",
+    all_sources_short: "Zdroje",
+    sources_selected: "zdrojů vybráno",
+    search_placeholder: "Hledat nabídky...",
+    view_deal: "Zobrazit nabídku",
+    copy_link: "Kopírovat odkaz",
+    save_to_favorites: "Uložit do oblíbených",
+    remove_from_favorites: "Odebrat z oblíbených",
+    link_copied: "Odkaz zkopírován",
+    you_left_off_here: "Zde jsi naposledy skončil/a",
+    new_badge: "Nové",
+    deals_found: "nabídek nalezeno",
+    deal_found: "nabídka nalezena",
+    no_deals_yet: "Zatím žádné nabídky",
+    no_deals_match: "Žádné nabídky neodpovídají filtrům",
+    no_deals_hint: "Nabídky se zobrazí po načtení RSS zdrojů",
+    no_deals_filter_hint: "Zkuste upravit vyhledávání nebo filtry",
+    reset_filters: "Resetovat filtry",
+    favorites_title: "Oblíbené",
+    no_saved_deals: "Zatím žádné uložené nabídky",
+    favorites_description: "Procházej nabídky a klepnutím na srdce si je ulož sem.",
+    browse_deals: "Procházet nabídky",
+    cz_sources: "CZ",
+    sk_sources: "SK",
+    global_sources: "Global",
+    load_more: "Načíst další",
+  },
+} as const;
+
+type UiKey = keyof typeof UI_STRINGS.en;
+
+export function useUiTranslations() {
+  const { language } = useLanguage();
+  const lang: Exclude<Language, "org"> = language === "org" ? "cs" : language;
+  const strings = UI_STRINGS[lang];
+  const t = (key: UiKey): string => strings[key];
+  return { t };
+}
