@@ -37,7 +37,7 @@ function DealGridWithDivider({
 }: {
   deals: Deal[];
   lastVisit: number;
-  t: (k: string) => string;
+  t: (k: any) => string;
 }) {
   const dividerIndex =
     lastVisit > 0
@@ -83,7 +83,7 @@ function EmptyState({
   t,
 }: {
   hasDeals: boolean;
-  t: (k: string) => string;
+  t: (k: any) => string;
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
