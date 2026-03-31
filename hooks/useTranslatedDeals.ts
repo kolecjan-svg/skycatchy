@@ -68,8 +68,12 @@ export function useTranslatedDeals(deals: Deal[]): {
 
   useEffect(() => {
     if (dealIds.length === 0) return;
-    fetchTranslationsForDeals(dealIds).then(setTranslations);
-  }, [dealIds, language]);
+    fetchTranslationsForDeals(dealIds).then(data => {
+      setTranslations(data);
+      console.log("Translations loaded:", data.length, "rows");
+      console.log("Languages:", [...new Set(data.map((t: TranslationRow) => t.lang))]);
+    });
+  }, [dealIds]);
 
   const translatedDeals = useMemo(() => {
     if (!safeDeals.length) return [];
