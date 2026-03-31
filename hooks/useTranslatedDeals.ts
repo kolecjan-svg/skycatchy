@@ -64,12 +64,12 @@ export function useTranslatedDeals(deals: Deal[]): {
   const { language } = useLanguage();
   const [translations, setTranslations] = useState<TranslationRow[]>(cachedTranslations);
 
-  const dealIds = useMemo(() => safeDeals.map((d) => d.id).sort(), [safeDeals.length]);
+  const dealIds = useMemo(() => safeDeals.map((d) => d.id).sort(), [JSON.stringify(safeDeals.map(d => d.id))]);
 
   useEffect(() => {
     if (dealIds.length === 0) return;
     fetchTranslationsForDeals(dealIds).then(setTranslations);
-  }, [dealIds]);
+  }, [dealIds, language]);
 
   const translatedDeals = useMemo(() => {
     if (!safeDeals.length) return [];
