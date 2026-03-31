@@ -106,6 +106,8 @@ export function useTranslatedDeals(deals: Deal[]): {
     });
   }, [safeDeals, translations, language]);
 
+  console.log("Language:", language, "Translated:", translatedDeals[0]?.name, "Original:", safeDeals[0]?.name);
+
   return {
     translatedDeals: translatedDeals.length > 0 ? translatedDeals : safeDeals,
     isTranslating: false,
