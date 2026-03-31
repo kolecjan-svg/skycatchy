@@ -79,6 +79,8 @@ export function useTranslatedDeals(deals: Deal[]): {
     if (!safeDeals.length) return [];
     if (language === "org") return safeDeals;
 
+    console.log("Processing translations, language:", language, "translations count:", translations.length, "deals count:", safeDeals.length);
+
     const map = new Map<string, TranslationRow[]>();
     for (const t of translations) {
       if (!t.deal_id) continue;
