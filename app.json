@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "SkyCatchy",
+    "slug": "skycatchy",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FF7A00"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.skycatchy.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Not required",
+        "NSLocationWhenInUseUsageDescription": "Not required"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FF7A00"
+      },
+      "package": "com.skycatchy.app"
+    },
+    "scheme": "skycatchy",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-localization"
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
