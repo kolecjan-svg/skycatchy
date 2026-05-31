@@ -1,7 +1,8 @@
 // app/(tabs)/index.tsx – Home screen: Deals Feed
 
-import React, { useState, useCallback, useMemo } from 'react';
-import { SafeAreaView, StyleSheet } from 'react-native';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDeals } from '../../hooks/useDeals';
 import { useSources } from '../../hooks/useSources';
 import { useFavorites } from '../../hooks/useFavorites';
@@ -17,6 +18,10 @@ export default function HomeScreen() {
   const [filterVisible, setFilterVisible] = useState(false);
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
 
+  // Bug #2 fix: track whether user has explicitly interacted with filters.
+  // If not, auto-select all sources on first load so the modal shows all checked.
+  const filtersInitialized = useRef(false);
+
   const { deals, isLoading, isError, hasNextPage, isFetchingNextPage, isRefetching, fetchNextPage, refetch } = useDeals();
   const { favorites, toggle: toggleFavorite } = useFavorites();
 
@@ -26,6 +31,14 @@ export default function HomeScreen() {
     () => sourceGroups.flatMap((g: SourceGroup) => g.sources.map((s: Source) => s.name)),
     [sourceGroups]
   );
+
+  // Bug #2 fix: once sources are loaded for the first time, initialize selection to all.
+  useEffect(() => {
+    if (!filtersInitialized.current && allSourceNames.length > 0) {
+      filtersInitialized.current = true;
+      setSelectedSources(new Set(allSourceNames));
+    }
+  }, [allSourceNames]);
 
   const filteredDeals = useMemo(
     () => applyFilters(deals, searchQuery, selectedSources),
@@ -47,19 +60,19 @@ export default function HomeScreen() {
   const handleSelectAll = useCallback(() => {
     setSelectedSources((prev) => {
       const allSelected = allSourceNames.every((n: string) => prev.has(n));
-      return allSelected ? new Set() : new Set(allSourceNames);
+      return allSelected ? new Set<string>() : new Set(allSourceNames);
     });
   }, [allSourceNames]);
 
-  // Dedicated clear – always resets to empty, never selects all
   const handleClearAll = useCallback(() => {
     setSelectedSources(new Set());
   }, []);
 
   const handleResetFilters = useCallback(() => {
-    setSelectedSources(new Set());
+    // Reset to all-selected (matches the default state on first launch)
+    setSelectedSources(new Set(allSourceNames));
     setSearchQuery('');
-  }, []);
+  }, [allSourceNames]);
 
   const activeFilterCount = selectedSources.size;
   const isEmpty = !isLoading && !isError && filteredDeals.length === 0;

@@ -3,8 +3,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, ScrollView,
-  StyleSheet, SafeAreaView, Platform, LayoutAnimation, UIManager,
+  StyleSheet, Platform, LayoutAnimation, UIManager,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadows } from '../constants/theme';
 import { getGroupSelectionState } from '../lib/searchUtils';

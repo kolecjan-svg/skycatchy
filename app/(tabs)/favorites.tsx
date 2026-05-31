@@ -1,7 +1,8 @@
 // app/(tabs)/favorites.tsx – Favorites screen
 
 import React, { useMemo } from 'react';
-import { SafeAreaView, View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useDeals } from '../../hooks/useDeals';
 import { useFavorites } from '../../hooks/useFavorites';
