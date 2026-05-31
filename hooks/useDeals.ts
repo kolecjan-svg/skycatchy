@@ -1,33 +1,24 @@
 // hooks/useDeals.ts – Paginated deals query with translation support.
 //
 // DB reality (confirmed 2026-05-31):
-// 1. deal_translations has no FK relationship → nested select fails (PGRST200)
-// 2. ORDER BY created_at/publish_date times out → no index on large table
-// 3. publish_date is NULL for all rows; created_at is the real recency signal
+// 1. deal_translations has no FK → nested select fails (PGRST200)
+// 2. ORDER BY on any column times out → no index exists
+// 3. publish_date is NULL for all rows; created_at is the recency signal
 // 4. Same deal_id re-inserted every ~15 min → heavy duplicates per id
-// 5. Table heap order = insertion order → oldest rows are at the start
+// 5. Supabase REST API hard-caps responses at 1000 rows regardless of limit=
 //
-// Bug #1 fix: use a sliding time-window filter (created_at >= N days ago)
-// so we skip April data and fetch only RECENT deals. Sort client-side using
-// effectiveSortDate = publish_date ?? created_at (newest first).
+// Bug #1 fix: sliding time-window filter (publish_date ?? created_at sort)
+// Bug #6 fix: 4h window + offset pagination (3 req × 1000 = all 2191 rows → 166 unique deals)
 
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { getLocales } from 'expo-localization';
 import { supabase } from '../lib/supabase';
 import { getDisplayDeal } from '../lib/translation';
 import { sortDealsByDate } from '../lib/dealSortUtils';
-import { PAGE_SIZE } from '../constants/theme';
+import { buildWindowedPages, SUPABASE_ROW_LIMIT } from '../lib/dealQueryUtils';
 import type { Deal, DealDisplay } from '../types';
 
 const DEALS_QUERY_KEY = ['deals'] as const;
-
-// Each "page" covers a time window of this many days.
-// Page 0 = last WINDOW_DAYS days; page 1 = WINDOW_DAYS to 2×WINDOW_DAYS ago; etc.
-const WINDOW_DAYS = 7;
-// Max rows fetched per window before dedup. Large enough to capture all unique
-// deals across a week (13 sources × ~20 deals × ~96 re-inserts/day × 7 days ≈ 175 k
-// rows — we cap with LIMIT to avoid timeouts; dedup brings unique count to ~260).
-const WINDOW_LIMIT = 2000;
 
 interface DealsPage {
   deals: DealDisplay[];
@@ -72,49 +63,55 @@ async function fetchTranslationsForIds(
   return map;
 }
 
-function windowStart(page: number): string {
-  const daysAgo = (page + 1) * WINDOW_DAYS;
-  const d = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
-  return d.toISOString();
-}
+/**
+ * Fetch all rows in a time window using offset pagination.
+ * Bug #6 fix: Supabase REST caps at 1000 rows per request.
+ * Page 0 uses a 4h window (2191 total rows) → needs 3 offset pages to capture all.
+ */
+async function fetchAllRowsInWindow(since: string, until: string, maxOffsetPages: number): Promise<Deal[]> {
+  const allRows: Deal[] = [];
 
-function windowEnd(page: number): string {
-  const daysAgo = page * WINDOW_DAYS;
-  if (daysAgo === 0) {
-    return new Date(Date.now() + 60 * 1000).toISOString(); // slight future buffer
+  for (let page = 0; page < maxOffsetPages; page++) {
+    const offset = page * SUPABASE_ROW_LIMIT;
+    const { data, error } = await supabase
+      .from('deals')
+      .select('*')
+      .gte('created_at', since)
+      .lt('created_at', until)
+      .range(offset, offset + SUPABASE_ROW_LIMIT - 1);
+
+    if (error) throw new Error(`Failed to fetch deals: ${error.message}`);
+
+    const batch = (data ?? []) as Deal[];
+    allRows.push(...batch);
+
+    // Stop early if last page (fewer rows than the limit)
+    if (batch.length < SUPABASE_ROW_LIMIT) break;
   }
-  const d = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
-  return d.toISOString();
+
+  return allRows;
 }
 
 async function fetchDealsPage(page: number): Promise<DealsPage> {
-  // Bug #1 fix: filter to a rolling time window so we skip old heap data.
-  // No ORDER BY — avoids statement timeout on unindexed created_at column.
-  const { data, error } = await supabase
-    .from('deals')
-    .select('*')
-    .gte('created_at', windowStart(page))
-    .lt('created_at', windowEnd(page))
-    .limit(WINDOW_LIMIT);
+  const window = buildWindowedPages(page);
 
-  if (error) {
-    throw new Error(`Failed to fetch deals: ${error.message}`);
-  }
+  const rows = await fetchAllRowsInWindow(
+    window.since,
+    window.until,
+    window.maxOffsetPages
+  );
 
-  const rows = (data ?? []) as Deal[];
-
-  // Dedup then sort by publish_date ?? created_at DESC (Bug #1 fix).
+  // Dedup then sort by publish_date ?? created_at DESC
   const deduped = deduplicateByCreatedAt(rows);
   const sorted = sortDealsByDate(deduped);
 
   const locale = getLocales()[0]?.languageCode ?? 'en';
-  const paginated = sorted.slice(0, PAGE_SIZE);
 
-  // Fetch translations separately (no FK relationship in schema).
-  const ids = paginated.map((d) => d.id);
+  // Fetch translations separately (no FK relationship in schema)
+  const ids = sorted.map((d) => d.id);
   const translationMap = await fetchTranslationsForIds(ids, locale);
 
-  const dealsWithTranslations: Deal[] = paginated.map((deal) => {
+  const dealsWithTranslations: Deal[] = sorted.map((deal) => {
     const t = translationMap.get(deal.id);
     if (t) {
       return {
@@ -134,8 +131,7 @@ async function fetchDealsPage(page: number): Promise<DealsPage> {
 
   const displayDeals = dealsWithTranslations.map((deal) => getDisplayDeal(deal, locale));
 
-  // hasNextPage: true if the window had data AND we haven't gone too far back.
-  // Cap at 8 weeks (page 7) to avoid indefinite pagination on sparse data.
+  // Cap at 8 pages (page 0–7) to avoid endless pagination into very old data
   const hasNextPage = rows.length > 0 && page < 7;
 
   return {
