@@ -2,19 +2,27 @@
 
 import type { Source, SourceCategory, SourceGroup } from '../types';
 
+// Bug #3 fix: domains whose TLD does not match their language/region.
+// cestujlevne.com is a Czech travel site (.com TLD, Czech content).
+// Add entries here whenever a new source uses a non-regional TLD.
+const DOMAIN_OVERRIDES: Readonly<Record<string, SourceCategory>> = {
+  'cestujlevne.com': 'czech',
+};
+
 /**
  * Infer the category of a source from its domain name.
- * - .cz TLD → czech
- * - .sk TLD → slovak
- * - anything else → global
+ * Priority: explicit override → .cz TLD → .sk TLD → global
  */
 export function categorizeSource(sourceName: string): SourceCategory {
   if (!sourceName) return 'global';
 
-  // Extract TLD from domain-like string
   const lower = sourceName.toLowerCase().trim();
 
-  // Match .cz at end or before a path
+  // Explicit override takes precedence over TLD detection
+  if (Object.prototype.hasOwnProperty.call(DOMAIN_OVERRIDES, lower)) {
+    return DOMAIN_OVERRIDES[lower];
+  }
+
   if (/\.cz($|\/)/.test(lower) || lower.endsWith('.cz')) return 'czech';
   if (/\.sk($|\/)/.test(lower) || lower.endsWith('.sk')) return 'slovak';
 

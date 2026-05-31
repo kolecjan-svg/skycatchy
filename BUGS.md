@@ -84,7 +84,18 @@ Expected:
 - International websites → Global Sources
 
 Status:
-OPEN
+FIXED
+
+Root cause:
+categorizeSource() relied solely on TLD detection (.cz → czech, .sk → slovak).
+cestujlevne.com uses a .com TLD despite being a Czech-language travel site,
+so it fell through to the 'global' default.
+
+Fix:
+Added DOMAIN_OVERRIDES: Record<string, SourceCategory> map in sourceUtils.ts.
+The override is checked before TLD matching, so any domain that uses a
+non-regional TLD can be correctly categorized. All 13 active DB sources now
+categorize correctly (verified by exhaustive test in bug3_source_categorization.test.ts).
 
 ---
 
