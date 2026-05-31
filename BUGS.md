@@ -302,3 +302,71 @@ Fix:
 - lib/favoritesStore.ts: toggle() while isLoaded=false appends to a
   pendingToggles[] queue. load() replays the queue after AsyncStorage resolves,
   then clears it. In-flight toggles are never lost.
+
+  ## Bug #8 – Incorrect Relative Time Display
+
+Priority: HIGH
+
+Description:
+Deal timestamps appear incorrect.
+
+Observed:
+- Multiple deals display "2 hours ago".
+- Feed then jumps directly to deals displayed as several days old.
+- Intermediate hour ranges appear to be missing.
+
+Expected:
+Relative time should accurately reflect the underlying deal timestamp.
+
+Examples:
+- 1 hour ago
+- 3 hours ago
+- 8 hours ago
+- 14 hours ago
+- 1 day ago
+- 2 days ago
+
+Investigation Required:
+- Verify publish_date values.
+- Verify created_at fallback logic.
+- Verify sorting timestamps.
+- Verify formatPublishDate() implementation.
+- Compare displayed timestamps with actual database values.
+
+Status:
+FIXED
+
+Root cause (confirmed against live DB on 2026-05-31, machine timezone Europe/Vienna UTC+2):
+
+DB investigation:
+  - publish_date: NULL for all 163 unique deals in the last 4h window
+  - created_at: "2026-05-31T15:00:23" (no timezone suffix, UTC, 12 min old)
+  - getDisplayDeal() correctly falls back to created_at
+  - DealDisplay.publish_date = "2026-05-31T15:00:23" (no Z suffix)
+
+Parsing bug:
+  Supabase returns timestamps WITHOUT a timezone designator:
+    "2026-05-31T15:00:23.852"  ← no Z, no +00:00
+  JavaScript's Date constructor treats timezone-naive strings as LOCAL TIME:
+    new Date("2026-05-31T15:00:23")  → parsed as 13:00:23 UTC (Vienna UTC+2 shifts −2h)
+    new Date("2026-05-31T15:00:23Z") → parsed as 15:00:23 UTC (CORRECT)
+  A deal from 12 minutes ago appeared as "2h ago".
+
+Secondary effect ("jump to several days old"):
+  When page 2 loads (28-76h window), stale deals from 3+ days ago appear.
+  The +2h shift inflates their age, creating the perception of a sudden gap
+  between the "2h ago" cluster and "3d ago" entries, with no intermediate values.
+
+Proven by running:
+  new Date("2026-05-31T15:00:23")  → diff from 15:11 UTC = 131 min → "2h ago"  (BUG)
+  new Date("2026-05-31T15:00:23Z") → diff from 15:11 UTC =  11 min → "10 min ago" (CORRECT)
+
+Fix:
+  lib/formatters.ts — formatPublishDate() normalizes timezone-naive ISO strings
+  by appending 'Z' before parsing:
+    const hasTimezone = /Z$|[+-]\d{2}:?\d{2}$/.test(isoDate);
+    const utcIso = hasTimezone ? isoDate : isoDate + 'Z';
+    date = new Date(utcIso);
+  Also added optional nowMs parameter for deterministic unit tests.
+  Also added timeZone:'UTC' to the date label fallback (>7 days) to prevent
+  off-by-one errors near day boundaries on UTC+ devices.
