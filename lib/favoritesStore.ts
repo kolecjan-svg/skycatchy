@@ -1,8 +1,8 @@
 // lib/favoritesStore.ts – Module-level shared favorites state.
 //
-// Bug #4 fix: useFavorites() was called in 3 components, each creating isolated
-// React state. A toggle in Home never propagated to Saved. Fix: one store instance
-// shared across the entire process via module scope.
+// Bug #4 fix: one store shared across all screens via module scope.
+// Bug #7 fix: guard toggle() during load with a pending queue so in-flight
+//   toggles are not silently overwritten when load() resumes from AsyncStorage.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { toggleFavorite, serializeFavorites, deserializeFavorites } from './favoritesUtils';
@@ -15,6 +15,9 @@ let state: Set<string> = new Set();
 let isLoaded = false;
 const listeners = new Set<Listener>();
 
+// Bug #7: queue toggles that arrive before load() completes
+const pendingToggles: string[] = [];
+
 function notify() {
   listeners.forEach((l) => l(state));
 }
@@ -24,8 +27,13 @@ async function load() {
   try {
     const json = await AsyncStorage.getItem(STORAGE_KEY);
     state = deserializeFavorites(json);
+    // Bug #7 fix: replay any toggles that fired during the async load gap
+    for (const id of pendingToggles) {
+      state = toggleFavorite(state, id);
+    }
+    pendingToggles.length = 0;
   } catch {
-    // Storage failure: start empty, don't crash
+    pendingToggles.length = 0;
   } finally {
     isLoaded = true;
     notify();
@@ -33,6 +41,8 @@ async function load() {
 }
 
 async function persist() {
+  // serializeFavorites(state) is evaluated synchronously before the await,
+  // so it always captures the state at call time — no race condition here.
   try {
     await AsyncStorage.setItem(STORAGE_KEY, serializeFavorites(state));
   } catch {
@@ -44,7 +54,6 @@ export const favoritesStore = {
   /** Subscribe to state changes. Returns an unsubscribe function. */
   subscribe(listener: Listener): () => void {
     listeners.add(listener);
-    // Immediately deliver current state if already loaded
     if (isLoaded) listener(state);
     return () => listeners.delete(listener);
   },
@@ -58,6 +67,11 @@ export const favoritesStore = {
   },
 
   toggle(id: string): void {
+    if (!isLoaded) {
+      // Bug #7 fix: queue the toggle so it's applied after AsyncStorage resolves
+      pendingToggles.push(id);
+      return;
+    }
     state = toggleFavorite(state, id);
     notify();
     persist();

@@ -16,6 +16,7 @@ import { supabase } from '../lib/supabase';
 import { getDisplayDeal } from '../lib/translation';
 import { sortDealsByDate } from '../lib/dealSortUtils';
 import { buildWindowedPages, SUPABASE_ROW_LIMIT } from '../lib/dealQueryUtils';
+import { deduplicateDealDisplays } from '../lib/dealDisplayUtils';
 import type { Deal, DealDisplay } from '../types';
 
 const DEALS_QUERY_KEY = ['deals'] as const;
@@ -148,7 +149,12 @@ export function useDeals() {
     getNextPageParam: (lastPage) => lastPage.nextPage,
   });
 
-  const allDeals = query.data?.pages.flatMap((page) => page.deals) ?? [];
+  // Bug #7 fix: flatMap produces cross-page duplicates (same deal ID on page 0
+  // and page 1 if the deal was active across both time windows). Deduplicate
+  // globally, keeping the most recent publish_date and re-sorting newest-first.
+  const allDeals = deduplicateDealDisplays(
+    query.data?.pages.flatMap((page) => page.deals) ?? []
+  );
 
   return {
     deals: allDeals,

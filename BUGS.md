@@ -234,3 +234,71 @@ New lib/dealQueryUtils.ts provides buildWindowedPages(page, now) which returns:
 useDeals.ts fetchAllRowsInWindow() loops .range(offset, offset+999) until
 batch.length < 1000 (early-stop on last page). Page 0 makes 3 requests and
 captures all 2191 rows → 166 unique deals after deduplication.
+
+Verification #6
+
+Compare:
+- Web inventory
+- Mobile inventory
+
+Acceptance Criteria:
+At least 90% of recent deals visible on the website must also appear in the mobile feed.
+
+## Bug #7 – Favorites Count and Duplicate Persistence
+
+Priority: CRITICAL
+
+Description:
+Favorites count, badge count and saved list are inconsistent.
+
+Observed:
+- Fresh app launch shows Saved badge = 2 even when no favorites should exist.
+- Saving two new deals increases the count incorrectly.
+- Duplicate deals can appear in the Saved list.
+- Badge count does not match the number of unique saved deals.
+
+Expected:
+- Saved badge count must equal the number of unique favorite deals.
+- No duplicate favorites may exist.
+- Fresh install / cleared storage must start with zero favorites.
+- Removing a favorite must immediately update all counts.
+- Saved screen and Home screen must always show identical favorite state.
+
+Investigation Required:
+- Verify AsyncStorage persistence.
+- Verify hydration on app startup.
+- Verify duplicate insertion protection.
+- Verify badge count source.
+- Verify unique deal IDs are used consistently.
+
+Status:
+FIXED
+
+Root cause (two failure mechanisms):
+
+1. PRIMARY – Cross-page duplicate DealDisplay items:
+   allDeals = pages.flatMap(p => p.deals) — each page deduplicates within its
+   own time window only. An active deal spans multiple windows: page 0 (0–4h)
+   and page 1 (4–28h) each contain an entry for the same deal ID. The flatMap
+   therefore produces duplicate IDs. favoritedDeals.filter(d => favorites.has(d.id))
+   returns 2 cards for 1 saved deal → Saved screen shows duplicates.
+   Badge (favorites.size, a Set) = 1, visible cards = 2 → count mismatch.
+   "Saving two new deals incorrectly": user sees the same deal twice in the feed
+   (pages 0 + 1 loaded). They tap both hearts. First tap adds deal-X (0→1).
+   Second tap removes deal-X (1→0). Net = 0, despite tapping twice.
+
+2. SECONDARY – toggle() during async load race condition:
+   If toggle(id) fires while isLoaded = false (between init() call and the
+   AsyncStorage.getItem resolve), state is updated in memory. When load()
+   resumes it overwrites state with the old persisted value, silently losing
+   the in-flight toggle.
+
+Fix:
+- lib/dealDisplayUtils.ts: new deduplicateDealDisplays() function. Collapses
+  cross-page duplicates keeping the entry with the most recent publish_date,
+  then re-sorts newest-first.
+- hooks/useDeals.ts: allDeals now passes through deduplicateDealDisplays()
+  before being returned to consumers.
+- lib/favoritesStore.ts: toggle() while isLoaded=false appends to a
+  pendingToggles[] queue. load() replays the queue after AsyncStorage resolves,
+  then clears it. In-flight toggles are never lost.
