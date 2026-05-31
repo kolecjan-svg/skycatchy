@@ -1,43 +1,27 @@
-// hooks/useFavorites.ts – Favorites management with AsyncStorage persistence
+// hooks/useFavorites.ts – Favorites hook backed by a shared module-level store.
+//
+// Bug #4 fix: previously each useFavorites() call created isolated React state,
+// so toggling in Home was invisible to Saved. Now all callers share one store.
 
 import { useState, useEffect, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  isFavorite,
-  toggleFavorite,
-  serializeFavorites,
-  deserializeFavorites,
-} from '../lib/favoritesUtils';
-
-const FAVORITES_STORAGE_KEY = '@skycatchy:favorites';
+import { favoritesStore } from '../lib/favoritesStore';
+import { isFavorite } from '../lib/favoritesUtils';
 
 export function useFavorites() {
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [favorites, setFavorites] = useState<Set<string>>(() => favoritesStore.getState());
+  const [isLoaded, setIsLoaded] = useState(() => favoritesStore.isLoaded());
 
-  // Load favorites from AsyncStorage on mount
   useEffect(() => {
-    AsyncStorage.getItem(FAVORITES_STORAGE_KEY)
-      .then((json) => {
-        setFavorites(deserializeFavorites(json));
-        setIsLoaded(true);
-      })
-      .catch((err) => {
-        if (__DEV__) console.warn('[useFavorites] Could not load favorites:', err);
-        setIsLoaded(true); // Don't block UI on storage error
-      });
+    // Subscribe to store updates — this is what makes cross-screen sync work.
+    const unsub = favoritesStore.subscribe((next) => {
+      setFavorites(next);
+      setIsLoaded(favoritesStore.isLoaded());
+    });
+    return unsub;
   }, []);
 
-  // Persist favorites whenever they change (after initial load)
-  useEffect(() => {
-    if (!isLoaded) return;
-    AsyncStorage.setItem(FAVORITES_STORAGE_KEY, serializeFavorites(favorites)).catch(
-      () => {} // Storage error: silent, don't crash app
-    );
-  }, [favorites, isLoaded]);
-
   const toggle = useCallback((dealId: string) => {
-    setFavorites((prev) => toggleFavorite(prev, dealId));
+    favoritesStore.toggle(dealId);
   }, []);
 
   const check = useCallback(
