@@ -129,3 +129,108 @@ subscriber synchronously. favoritesStore.init() is called once in app/_layout.ts
 to trigger the AsyncStorage load.
 
 Commit: 85aa7fa
+
+## Bug #5 – Remove Saved Deals Header
+
+Priority: MEDIUM
+
+Description:
+The Saved screen displays a header section showing:
+
+"Saved Deals (2)"
+
+This section remains visible even when no deals should be displayed.
+
+Expected:
+- Remove the entire Saved Deals counter/header section.
+- If there are no favorites:
+  - Display only the empty state ("No saved deals yet").
+- If favorites exist:
+  - Display the favorite deal cards directly.
+- No separate Saved Deals counter bar should be shown.
+
+Status:
+FIXED
+
+Root cause:
+Header block in favorites.tsx was unconditional — rendered on every mount
+regardless of whether favorites existed. Also, the count badge was redundant
+with the tab bar badge added in the previous session.
+
+Fix:
+Removed the entire header View, title Text, countBadge View and countText
+from favorites.tsx. The screen now renders only the empty state or the deal
+list directly. Count remains visible via the tab bar badge.
+
+---
+
+## Bug #6 – Incomplete Deal Feed
+
+Priority: CRITICAL
+
+Description:
+The Home feed displays deals sorted by time, but the number of recent deals is much lower than on the SkyCatchy website.
+
+Example:
+- Feed shows:
+  - 2 hours ago
+  - 2 hours ago
+  - 4 hours ago
+  - 2 days ago
+  - 3 days ago
+
+However, the SkyCatchy website contains significantly more deals within the last few hours.
+
+Expected:
+- Mobile app must display the same deal inventory as SkyCatchy web.
+- Verify Supabase query logic.
+- Verify pagination logic.
+- Verify filtering logic.
+- Verify deduplication logic.
+- Verify date-window logic introduced during Bug #1 fix.
+- Verify no recent deals are being excluded accidentally.
+
+Investigation Required:
+Compare:
+- Number of deals on website
+- Number of deals returned by Supabase
+- Number of deals displayed in app
+
+Provide root cause analysis before implementing the fix.
+
+Status:
+FIXED
+
+Root cause (quantified against live Supabase DB):
+
+Three compounding bugs in Bug #1's useDeals.ts fix:
+
+1. WINDOW_LIMIT=2000 was silently ignored.
+   Supabase REST API hard-caps every response at 1000 rows regardless of the
+   limit= parameter value. With ~174,000 rows in a 7-day window, the effective
+   sample was 1000/174,000 = 0.57%.
+
+2. WINDOW_DAYS=7 was far too wide.
+   A 7-day window with 1000-row cap yields only 7 unique deal IDs after
+   deduplication. The 4-hour window (DB-confirmed: 2191 total rows across 3
+   offset pages) yields 166 unique active deals — matching the website inventory.
+
+3. No offset pagination.
+   A single .range(0, 999) request was made per page, missing all rows at
+   offset 1000+. The fix uses sequential .range() calls (offset 0, 1000, 2000)
+   until the batch returns fewer than 1000 rows (last page signal).
+
+DB investigation results (2026-05-31):
+- Last 4h rows: 2191 (confirmed via count=exact header: 0-999/2191)
+- Unique deal IDs in last 4h: 166 (fetched via 3 offset pages)
+- Old app query result: 7 unique deals (0.57% sample from 7-day window)
+- Per-source ORDER BY: still times out (no index on any column)
+
+Fix:
+New lib/dealQueryUtils.ts provides buildWindowedPages(page, now) which returns:
+  Page 0: 4-hour window, useOffsetPagination=true, maxOffsetPages=5
+  Page 1+: progressively older windows (24h, 48h, 96h...), single request
+
+useDeals.ts fetchAllRowsInWindow() loops .range(offset, offset+999) until
+batch.length < 1000 (early-stop on last page). Page 0 makes 3 requests and
+captures all 2191 rows → 166 unique deals after deduplication.
