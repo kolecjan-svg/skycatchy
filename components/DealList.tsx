@@ -33,6 +33,7 @@ interface DealListProps {
   onRetry: () => void;
   onResetFilters?: () => void;
   isEmpty?: boolean;
+  scrollToTopTrigger?: number;
 }
 
 const SKELETON_COUNT = 5;
@@ -52,10 +53,18 @@ export default function DealList({
   onRetry,
   onResetFilters,
   isEmpty = false,
+  scrollToTopTrigger,
 }: DealListProps) {
   const listRef = useRef<FlatList>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const fabAnim = useRef(new Animated.Value(0)).current;
+
+  // Scroll to top when filters change
+  useEffect(() => {
+    if (scrollToTopTrigger !== undefined && scrollToTopTrigger > 0) {
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    }
+  }, [scrollToTopTrigger]);
 
   // Animate FAB in/out
   useEffect(() => {

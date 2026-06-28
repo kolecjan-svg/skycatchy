@@ -24,7 +24,7 @@ export default function FavoritesScreen() {
   const isEmpty = !isLoading && isLoaded && favoritedDeals.length === 0;
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       {isEmpty ? (
         <EmptyState
           type="favorites"

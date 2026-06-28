@@ -4,6 +4,7 @@ export interface Deal {
   id: string;
   name: string;
   description: string | null;
+  content: string | null;
   link: string;
   image: string | null;
   source: string;
@@ -43,6 +44,7 @@ export interface DealDisplay {
   id: string;
   name: string;
   description: string | null;
+  content: string | null;
   link: string;
   image: string | null;
   source: string;

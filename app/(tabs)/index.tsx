@@ -17,6 +17,7 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterVisible, setFilterVisible] = useState(false);
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
+  const [scrollTrigger, setScrollTrigger] = useState(0);
 
   // Bug #2 fix: track whether user has explicitly interacted with filters.
   // If not, auto-select all sources on first load so the modal shows all checked.
@@ -45,43 +46,49 @@ export default function HomeScreen() {
     [deals, searchQuery, selectedSources]
   );
 
+  const bumpScroll = useCallback(() => setScrollTrigger((t) => t + 1), []);
+
   const handleToggleSource = useCallback((sourceName: string) => {
     setSelectedSources((prev) => {
       const next = new Set(prev);
       next.has(sourceName) ? next.delete(sourceName) : next.add(sourceName);
       return next;
     });
-  }, []);
+    bumpScroll();
+  }, [bumpScroll]);
 
   const handleToggleGroup = useCallback((group: SourceGroup) => {
     setSelectedSources((prev) => toggleGroupSources(group, prev));
-  }, []);
+    bumpScroll();
+  }, [bumpScroll]);
 
   const handleSelectAll = useCallback(() => {
     setSelectedSources((prev) => {
       const allSelected = allSourceNames.every((n: string) => prev.has(n));
       return allSelected ? new Set<string>() : new Set(allSourceNames);
     });
-  }, [allSourceNames]);
+    bumpScroll();
+  }, [allSourceNames, bumpScroll]);
 
   const handleClearAll = useCallback(() => {
     setSelectedSources(new Set());
-  }, []);
+    bumpScroll();
+  }, [bumpScroll]);
 
   const handleResetFilters = useCallback(() => {
-    // Reset to all-selected (matches the default state on first launch)
     setSelectedSources(new Set(allSourceNames));
     setSearchQuery('');
-  }, [allSourceNames]);
+    bumpScroll();
+  }, [allSourceNames, bumpScroll]);
 
   const activeFilterCount = selectedSources.size;
   const isEmpty = !isLoading && !isError && filteredDeals.length === 0;
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <SearchBar
         value={searchQuery}
-        onChange={setSearchQuery}
+        onChange={(q) => { setSearchQuery(q); bumpScroll(); }}
         onFilterPress={() => setFilterVisible(true)}
         activeFilterCount={activeFilterCount}
       />
@@ -99,6 +106,7 @@ export default function HomeScreen() {
         onRetry={() => refetch()}
         onResetFilters={handleResetFilters}
         isEmpty={isEmpty}
+        scrollToTopTrigger={scrollTrigger}
       />
       <FilterModal
         visible={filterVisible}

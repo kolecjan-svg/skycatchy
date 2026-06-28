@@ -4,19 +4,19 @@ import React, { memo, useCallback, useState } from 'react';
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   StyleSheet,
-  Linking,
-  Platform,
   ImageBackground,
+  Share,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadows } from '../constants/theme';
-import { formatPublishDate, truncateDescription } from '../lib/formatters';
+import { formatPublishDate } from '../lib/formatters';
 import { decodeHtmlEntities } from '../lib/htmlUtils';
 import type { DealDisplay } from '../types';
+import { dealPreviewStore } from '../lib/dealPreviewStore';
 
 interface DealCardProps {
   deal: DealDisplay;
@@ -29,13 +29,13 @@ const DealCard = memo(function DealCard({
   isFavorite,
   onToggleFavorite,
 }: DealCardProps) {
+  const router = useRouter();
   const [imageError, setImageError] = useState(false);
 
   const handlePress = useCallback(() => {
-    const url = deal.link ?? '';
-    if (!url.startsWith('http://') && !url.startsWith('https://')) return;
-    Linking.openURL(url).catch(() => {});
-  }, [deal.link]);
+    dealPreviewStore.set(deal);
+    router.push('/deal');
+  }, [deal, router]);
 
   const handleFavoritePress = useCallback(
     (e: { stopPropagation: () => void }) => {
@@ -45,8 +45,15 @@ const DealCard = memo(function DealCard({
     [deal.id, onToggleFavorite]
   );
 
+  const handleSharePress = useCallback(
+    (e: { stopPropagation: () => void }) => {
+      e.stopPropagation();
+      Share.share({ url: deal.link, message: deal.name });
+    },
+    [deal.link, deal.name]
+  );
+
   const title = decodeHtmlEntities(deal.name);
-  const preview = truncateDescription(decodeHtmlEntities(deal.description), 3);
   const timeAgo = formatPublishDate(deal.publish_date);
   const hasImage = !!deal.image && !imageError;
 
@@ -83,36 +90,42 @@ const DealCard = memo(function DealCard({
           </View>
         )}
 
-        {/* Favorite button */}
-        <TouchableOpacity
-          style={styles.heartButton}
-          onPress={handleFavoritePress}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          accessibilityRole="button"
-          accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Save to favorites'}
-          accessibilityState={{ selected: isFavorite }}
-        >
-          <View style={[styles.heartBg, isFavorite && styles.heartBgActive]}>
-            <Ionicons
-              name={isFavorite ? 'heart' : 'heart-outline'}
-              size={18}
-              color={isFavorite ? Colors.heartActive : Colors.white}
-            />
-          </View>
-        </TouchableOpacity>
+        {/* Action buttons */}
+        <View style={styles.actionButtons}>
+          <TouchableOpacity
+            onPress={handleSharePress}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel="Share deal"
+          >
+            <View style={styles.heartBg}>
+              <Ionicons name="share-outline" size={18} color={Colors.white} />
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleFavoritePress}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Save to favorites'}
+            accessibilityState={{ selected: isFavorite }}
+          >
+            <View style={[styles.heartBg, isFavorite && styles.heartBgActive]}>
+              <Ionicons
+                name={isFavorite ? 'heart' : 'heart-outline'}
+                size={18}
+                color={isFavorite ? Colors.heartActive : Colors.white}
+              />
+            </View>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Content */}
       <View style={styles.content}>
-        <Text style={styles.title} numberOfLines={2}>
+        <Text style={styles.title}>
           {title}
         </Text>
-
-        {preview ? (
-          <Text style={styles.preview} numberOfLines={3}>
-            {preview}
-          </Text>
-        ) : null}
 
         {/* Meta row */}
         <View style={styles.meta}>
@@ -155,10 +168,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: Colors.lightBg,
   },
-  heartButton: {
+  actionButtons: {
     position: 'absolute',
     top: Spacing.sm,
     right: Spacing.sm,
+    flexDirection: 'row',
+    gap: Spacing.xs,
   },
   heartBg: {
     width: 36,
@@ -181,12 +196,6 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     lineHeight: 23,
     marginBottom: Spacing.xs,
-  },
-  preview: {
-    fontSize: FontSize.md,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-    marginBottom: Spacing.sm,
   },
   meta: {
     flexDirection: 'row',
