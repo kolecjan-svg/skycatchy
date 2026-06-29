@@ -64,13 +64,21 @@ async function run() {
 
   console.log(`Found ${oldDeals.length} old deals to delete`);
   const oldIds = oldDeals.map((d) => d.id);
-  const idList = oldIds.join(",");
 
-  // Delete translations first (FK constraint)
-  await restFetch(`deal_translations?deal_id=in.(${idList})`, { method: "DELETE" });
-
-  // Delete deals
-  await restFetch(`deals?id=in.(${idList})`, { method: "DELETE" });
+  // Batch deletes — URLs get too long with 1000+ UUIDs at once
+  const BATCH = 100;
+  for (let i = 0; i < oldIds.length; i += BATCH) {
+    const ids = oldIds.slice(i, i + BATCH).join(",");
+    await restFetch(`deal_translations?deal_id=in.(${ids})`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    });
+    await restFetch(`deals?id=in.(${ids})`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    });
+    console.log(`Deleted batch ${Math.floor(i / BATCH) + 1}/${Math.ceil(oldIds.length / BATCH)}`);
+  }
 
   console.log(`✅ Deleted ${oldIds.length} deals and their translations`);
   console.log("\n=================================");
