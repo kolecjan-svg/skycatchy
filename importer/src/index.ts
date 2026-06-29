@@ -35,101 +35,8 @@ const LANG: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Article content extraction (density-based, server-side)
 // ---------------------------------------------------------------------------
-function extractDensestBlock(lines: string[]): string {
-  let bestStart = 0, bestEnd = 0, bestScore = 0;
-  let curStart = 0, curScore = 0, gaps = 0;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].length >= 40) {
-      curScore++; gaps = 0;
-    } else {
-      if (++gaps > 2) {
-        if (curScore > bestScore) { bestScore = curScore; bestStart = curStart; bestEnd = i - gaps; }
-        curStart = i + 1; curScore = 0; gaps = 0;
-      }
-    }
-  }
-  if (curScore > bestScore) { bestStart = curStart; bestEnd = lines.length - 1; }
-  const slice = bestScore > 0
-    ? lines.slice(bestStart, bestEnd + 1).filter((l) => l.length > 5)
-    : lines.filter((l) => l.length > 10);
-  return slice.join("\n\n");
-}
 
-async function fetchArticleContent(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(5000),
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; SkyCatchyBot/1.0)" },
-    });
-    if (!res.ok) return null;
-    const raw = await res.text();
 
-    // Try JSON-LD first (works for SSR + some SPAs)
-    const jsonLdTags = raw.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) ?? [];
-    for (const tag of jsonLdTags) {
-      try {
-        const data = JSON.parse(tag.replace(/<[^>]+>/g, "").trim());
-        const items = Array.isArray(data) ? data : [data];
-        for (const item of items) {
-          if (item?.articleBody?.length > 100) return item.articleBody;
-          if (item?.description?.length > 120) return item.description;
-        }
-      } catch {}
-    }
-
-    // Strip noise
-    const html = raw
-      .replace(/<script[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[\s\S]*?<\/style>/gi, "")
-      .replace(/<nav[\s\S]*?<\/nav>/gi, "")
-      .replace(/<header[\s\S]*?<\/header>/gi, "")
-      .replace(/<footer[\s\S]*?<\/footer>/gi, "")
-      .replace(/<aside[\s\S]*?<\/aside>/gi, "")
-      .replace(/<figure[\s\S]*?<\/figure>/gi, "")
-      .replace(/<!--[\s\S]*?-->/g, "");
-
-    const toLines = (src: string) =>
-      src
-        .replace(/<\/?(p|br|div|h[1-6]|li|tr|blockquote|section|article|main)[^>]*>/gi, "\n")
-        .replace(/<[^>]+>/g, "")
-        .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-        .replace(/&hellip;/g, "…").replace(/&ndash;/g, "–").replace(/&mdash;/g, "—")
-        .replace(/&#\d+;/g, "").replace(/&[a-z]{2,8};/gi, "")
-        .split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-
-    // Try <article> / <main>
-    const container =
-      html.match(/<article[^>]*>([\s\S]*?)<\/article>/i)?.[1] ??
-      html.match(/<main[^>]*>([\s\S]*?)<\/main>/i)?.[1];
-    if (container) {
-      const text = extractDensestBlock(toLines(container));
-      if (isRealArticle(text)) return text;
-    }
-
-    // Full body with density
-    const body = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
-    const bodyText = extractDensestBlock(toLines(body));
-    if (isRealArticle(bodyText)) return bodyText;
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// Only store content if it looks like real article text (multiple paragraphs, long enough)
-function isRealArticle(text: string): boolean {
-  return text.length > 400 && text.includes("\n\n");
-}
-
-async function resolveContent(deals: any[]): Promise<void> {
-  for (let i = 0; i < deals.length; i += 6) {
-    const batch = deals.slice(i, i + 6);
-    const contents = await Promise.all(batch.map((d) => fetchArticleContent(d.link)));
-    contents.forEach((c, j) => { batch[j].content = c ?? null; });
-  }
-}
 
 async function fetchOgImage(url: string): Promise<string | null> {
   try {
@@ -228,19 +135,6 @@ async function run() {
       console.log(`✅ Inserted ${newCount} new deals from ${source.name}`);
 
       if (newCount === 0) continue;
-
-      // Fetch content only for newly inserted deals (not existing ones)
-      const newLinks = new Set((inserted ?? []).map((d: any) => d.link));
-      const newDeals = deals.filter((d) => newLinks.has(d.link));
-      await resolveContent(newDeals);
-
-      // Save content for new deals
-      for (const deal of newDeals.filter((d) => d.content)) {
-        await supabase
-          .from("deals")
-          .update({ content: deal.content })
-          .eq("link", deal.link);
-      }
 
     } catch (err) {
       console.log(`❌ Feed failed: ${source.name}`);
