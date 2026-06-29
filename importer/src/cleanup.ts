@@ -37,9 +37,8 @@ async function run() {
 
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  // Fetch old deal IDs
-  const params = new URLSearchParams({ select: "id", "created_at": `lt.${cutoff}` });
-  const selectRes = await restFetch(`deals?${params}`);
+  // Fetch old deal IDs (no URLSearchParams — PostgREST needs literal colons in timestamps)
+  const selectRes = await restFetch(`deals?select=id&created_at=lt.${cutoff}`);
   const oldDeals: { id: string }[] = await selectRes.json();
 
   if (oldDeals.length === 0) {
@@ -52,14 +51,13 @@ async function run() {
 
   console.log(`Found ${oldDeals.length} old deals to delete`);
   const oldIds = oldDeals.map((d) => d.id);
+  const idList = oldIds.join(",");
 
   // Delete translations first (FK constraint)
-  const transParams = new URLSearchParams({ "deal_id": `in.(${oldIds.join(",")})` });
-  await restFetch(`deal_translations?${transParams}`, { method: "DELETE" });
+  await restFetch(`deal_translations?deal_id=in.(${idList})`, { method: "DELETE" });
 
   // Delete deals
-  const dealsParams = new URLSearchParams({ id: `in.(${oldIds.join(",")})` });
-  await restFetch(`deals?${dealsParams}`, { method: "DELETE" });
+  await restFetch(`deals?id=in.(${idList})`, { method: "DELETE" });
 
   console.log(`✅ Deleted ${oldIds.length} deals and their translations`);
   console.log("\n=================================");
