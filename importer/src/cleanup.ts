@@ -35,9 +35,20 @@ async function run() {
     process.exit(1);
   }
 
-  const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  console.log("Base URL:", supabaseUrl);
 
-  // Fetch old deal IDs (no URLSearchParams — PostgREST needs literal colons in timestamps)
+  // Connectivity test — GET /rest/v1/ returns OpenAPI spec (200) if key is valid
+  const pingRes = await fetch(`${supabaseUrl}/rest/v1/`, { headers: baseHeaders });
+  console.log("Ping /rest/v1/ →", pingRes.status);
+
+  // Table test — no filters
+  const tableRes = await fetch(`${supabaseUrl}/rest/v1/deals?select=id&limit=1`, { headers: baseHeaders });
+  console.log("GET deals limit 1 →", tableRes.status, await tableRes.text().then(t => t.substring(0, 120)));
+
+  const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  console.log("Cutoff:", cutoff);
+
+  // Fetch old deal IDs
   const selectRes = await restFetch(`deals?select=id&created_at=lt.${cutoff}`);
   const oldDeals: { id: string }[] = await selectRes.json();
 
