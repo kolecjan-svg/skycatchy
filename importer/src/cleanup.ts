@@ -2,7 +2,9 @@ import dotenv from "dotenv";
 dotenv.config({ path: "../.env" });
 
 const RETENTION_DAYS = Math.max(7, parseInt(process.env.RETENTION_DAYS ?? "7", 10));
-const supabaseUrl = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
+const supabaseUrl = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? "")
+  .replace(/\/$/, "")
+  .replace(/\/rest\/v1$/, "");
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
 const baseHeaders = {
