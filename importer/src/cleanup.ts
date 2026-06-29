@@ -1,16 +1,27 @@
 import dotenv from "dotenv";
 dotenv.config({ path: "../.env" });
 
-import { createClient } from "@supabase/supabase-js";
-
 const RETENTION_DAYS = Math.max(7, parseInt(process.env.RETENTION_DAYS ?? "7", 10));
-
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
+const supabaseUrl = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
-const supabase = createClient(supabaseUrl, serviceKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const baseHeaders = {
+  apikey: serviceKey,
+  Authorization: `Bearer ${serviceKey}`,
+  "Content-Type": "application/json",
+};
+
+async function restFetch(path: string, options: RequestInit = {}) {
+  const res = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+    ...options,
+    headers: { ...baseHeaders, ...(options.headers ?? {}) },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => res.statusText);
+    throw new Error(`HTTP ${res.status}: ${body}`);
+  }
+  return res;
+}
 
 async function run() {
   console.log("=================================");
@@ -19,29 +30,19 @@ async function run() {
   console.log(`Retention: ${RETENTION_DAYS} days`);
   console.log("=================================\n");
 
-  console.log("URL set:", supabaseUrl.length > 0 ? supabaseUrl.substring(0, 30) + "..." : "MISSING");
-  console.log("Service key set:", serviceKey.length > 10 ? "YES" : "MISSING");
-
   if (!supabaseUrl || !serviceKey) {
     console.error("❌ Missing EXPO_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
     process.exit(1);
   }
 
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  console.log("Cutoff date:", cutoff);
 
-  // Fetch IDs of old deals (NULL created_at is already excluded by lt filter in SQL)
-  const { data: oldDeals, error: fetchError } = await supabase
-    .from("deals")
-    .select("id")
-    .lt("created_at", cutoff);
+  // Fetch old deal IDs
+  const params = new URLSearchParams({ select: "id", "created_at": `lt.${cutoff}` });
+  const selectRes = await restFetch(`deals?${params}`);
+  const oldDeals: { id: string }[] = await selectRes.json();
 
-  if (fetchError) {
-    console.error("❌ Cleanup failed:", fetchError.message);
-    process.exit(1);
-  }
-
-  if (!oldDeals || oldDeals.length === 0) {
+  if (oldDeals.length === 0) {
     console.log("✅ No deals to clean up");
     console.log("\n=================================");
     console.log("Cleanup complete");
@@ -49,30 +50,16 @@ async function run() {
     return;
   }
 
+  console.log(`Found ${oldDeals.length} old deals to delete`);
   const oldIds = oldDeals.map((d) => d.id);
-  console.log(`Found ${oldIds.length} old deals to delete`);
 
   // Delete translations first (FK constraint)
-  const { error: transError } = await supabase
-    .from("deal_translations")
-    .delete()
-    .in("deal_id", oldIds);
-
-  if (transError) {
-    console.error("❌ Translation cleanup failed:", transError.message);
-    process.exit(1);
-  }
+  const transParams = new URLSearchParams({ "deal_id": `in.(${oldIds.join(",")})` });
+  await restFetch(`deal_translations?${transParams}`, { method: "DELETE" });
 
   // Delete deals
-  const { error: dealsError } = await supabase
-    .from("deals")
-    .delete()
-    .in("id", oldIds);
-
-  if (dealsError) {
-    console.error("❌ Deals cleanup failed:", dealsError.message);
-    process.exit(1);
-  }
+  const dealsParams = new URLSearchParams({ id: `in.(${oldIds.join(",")})` });
+  await restFetch(`deals?${dealsParams}`, { method: "DELETE" });
 
   console.log(`✅ Deleted ${oldIds.length} deals and their translations`);
   console.log("\n=================================");
@@ -80,4 +67,7 @@ async function run() {
   console.log("=================================");
 }
 
-run();
+run().catch((err) => {
+  console.error("❌ Cleanup failed:", err.message);
+  process.exit(1);
+});
