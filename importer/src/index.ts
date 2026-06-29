@@ -58,7 +58,7 @@ function extractDensestBlock(lines: string[]): string {
 async function fetchArticleContent(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(5000),
       headers: { "User-Agent": "Mozilla/5.0 (compatible; SkyCatchyBot/1.0)" },
     });
     if (!res.ok) return null;
@@ -124,9 +124,8 @@ function isRealArticle(text: string): boolean {
 }
 
 async function resolveContent(deals: any[]): Promise<void> {
-  // Fetch in batches of 3 (heavier than image fetch)
-  for (let i = 0; i < deals.length; i += 3) {
-    const batch = deals.slice(i, i + 3);
+  for (let i = 0; i < deals.length; i += 6) {
+    const batch = deals.slice(i, i + 6);
     const contents = await Promise.all(batch.map((d) => fetchArticleContent(d.link)));
     contents.forEach((c, j) => { batch[j].content = c ?? null; });
   }
@@ -213,42 +212,35 @@ async function run() {
       // Fetch og:image for any deal missing an image
       await resolveImages(deals);
 
-      // Fetch full article content for all deals
-      await resolveContent(deals);
-
-      // Insert new deals; skip existing ones (preserve their created_at)
+      // Upsert without content first — fast path, skips duplicates
       const { error: insertError, data: inserted } = await supabase
         .from("deals")
         .upsert(deals, { onConflict: "link", ignoreDuplicates: true })
-        .select("id");
+        .select("id,link");
 
       if (insertError) {
         console.error(insertError);
-      } else {
-        imported += (inserted ?? []).length;
+        continue;
       }
 
-      // Back-fill og:image for existing deals that don't have one yet
-      const dealsWithImage = deals.filter((d) => d.image);
-      for (const deal of dealsWithImage) {
-        await supabase
-          .from("deals")
-          .update({ image: deal.image })
-          .eq("link", deal.link)
-          .is("image", null);
-      }
+      const newCount = (inserted ?? []).length;
+      imported += newCount;
+      console.log(`✅ Inserted ${newCount} new deals from ${source.name}`);
 
-      // Back-fill content for existing deals that don't have it yet
-      const dealsWithContent = deals.filter((d) => d.content);
-      for (const deal of dealsWithContent) {
+      if (newCount === 0) continue;
+
+      // Fetch content only for newly inserted deals (not existing ones)
+      const newLinks = new Set((inserted ?? []).map((d: any) => d.link));
+      const newDeals = deals.filter((d) => newLinks.has(d.link));
+      await resolveContent(newDeals);
+
+      // Save content for new deals
+      for (const deal of newDeals.filter((d) => d.content)) {
         await supabase
           .from("deals")
           .update({ content: deal.content })
-          .eq("link", deal.link)
-          .is("content", null);
+          .eq("link", deal.link);
       }
-
-      console.log(`✅ Imported ${imported} deals`);
 
     } catch (err) {
       console.log(`❌ Feed failed: ${source.name}`);
