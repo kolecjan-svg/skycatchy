@@ -23,6 +23,7 @@ import {
   FontWeight,
 } from '../constants/theme';
 import { dealPreviewStore } from '../lib/dealPreviewStore';
+import { supabase } from '../lib/supabase';
 import { useFavorites } from '../hooks/useFavorites';
 import { formatPublishDate } from '../lib/formatters';
 import { decodeHtmlEntities } from '../lib/htmlUtils';
@@ -32,21 +33,49 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const EXTRACT_JS = `
 (function() {
-  try {
-    ['script','style','nav','header','footer','aside','figure','iframe','noscript','form','button'].forEach(function(tag) {
-      document.querySelectorAll(tag).forEach(function(el) { el.remove(); });
-    });
-    var el = document.querySelector('article') ||
-              document.querySelector('main') ||
-              document.querySelector('[class*="post-content"]') ||
-              document.querySelector('[class*="article-body"]') ||
-              document.querySelector('[class*="entry-content"]') ||
-              document.body;
-    var text = (el ? el.innerText : '').trim();
-    window.ReactNativeWebView.postMessage(JSON.stringify({ text: text }));
-  } catch(e) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({ text: '' }));
+  var attempts = 0;
+  var MAX_ATTEMPTS = 12;
+  function extract() {
+    try {
+      // Remove noise elements
+      ['script','style','nav','header','footer','aside','figure','iframe','noscript','form','button'].forEach(function(tag) {
+        document.querySelectorAll(tag).forEach(function(el) { el.remove(); });
+      });
+      // Remove comment/discussion sections
+      ['[class*="comment"]','[id*="comment"]','[class*="discuss"]','[id*="discuss"]',
+       '[class*="respond"]','[id*="respond"]','[class*="koment"]','[id*="koment"]',
+       '[class*="reakce"]','[class*="social"]','[class*="share"]','[class*="related"]',
+       '[class*="newsletter"]','[class*="subscribe"]'].forEach(function(sel) {
+        try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
+      });
+      var el = document.querySelector('article') ||
+                document.querySelector('main') ||
+                document.querySelector('[class*="post-content"]') ||
+                document.querySelector('[class*="article-body"]') ||
+                document.querySelector('[class*="entry-content"]') ||
+                document.body;
+      var text = (el ? el.innerText : '').trim();
+      // Retry if content not ready yet (SPA still rendering)
+      if (text.length < 300 && attempts < MAX_ATTEMPTS) {
+        attempts++;
+        setTimeout(extract, 500);
+        return;
+      }
+      // Truncate at comment/discussion section dividers (case-insensitive)
+      var stopWords = ['diskuze', 'komentáře', 'komentare', 'přidat komentář',
+                       'comments', 'leave a reply', 'leave a comment', 'related posts', 'související',
+                       'akční letenky', 'další nabídky', 'mohlo by vás zajímat'];
+      var lowerText = text.toLowerCase();
+      for (var i = 0; i < stopWords.length; i++) {
+        var idx = lowerText.indexOf(stopWords[i]);
+        if (idx > 300) { text = text.substring(0, idx).trim(); break; }
+      }
+      window.ReactNativeWebView.postMessage(JSON.stringify({ text: text }));
+    } catch(e) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ text: '' }));
+    }
   }
+  extract();
   true;
 })();
 `;
@@ -60,8 +89,9 @@ export default function DealModal() {
   const [imageError, setImageError] = useState(false);
   const [webContent, setWebContent] = useState<string | null>(null);
 
-  // needsWebView = deal has no DB content worth showing
-  const needsWebView = !deal?.content;
+  const cachedContent = deal?.id ? dealPreviewStore.getCachedContent(deal.id) : null;
+  // needsWebView = deal has no DB content and no in-memory cached content
+  const needsWebView = !deal?.content && !cachedContent;
 
   useEffect(() => {
     if (!deal) { router.back(); return; }
@@ -82,6 +112,13 @@ export default function DealModal() {
         .join('\n\n');
       if (cleaned.length > 200 && cleaned.includes('\n\n')) {
         setWebContent(cleaned);
+        const id = dealPreviewStore.get()?.id;
+        if (id) {
+          // Cache in memory so re-opening same deal is instant
+          dealPreviewStore.cacheContent(id, cleaned);
+          // Write-back to DB so next app launch is also instant
+          supabase.from('deals').update({ content: cleaned }).eq('id', id).then(() => {});
+        }
       }
     } catch {}
   }, []);
@@ -108,8 +145,10 @@ export default function DealModal() {
   if (!deal) return null;
 
   const title = decodeHtmlEntities(deal.name);
-  const rawBody = webContent ?? deal.content ?? (deal.description ? decodeHtmlEntities(deal.description) : null);
-  const bodyText = rawBody && (rawBody.length > 200 || rawBody.includes('\n')) ? rawBody : null;
+  const extractedContent = webContent ?? cachedContent ?? deal.content ?? null;
+  const goodContent = extractedContent && extractedContent.length > 200 && extractedContent.includes('\n');
+  const description = deal.description ? decodeHtmlEntities(deal.description) : null;
+  const bodyText = goodContent ? extractedContent : (description || extractedContent) || null;
   const timeAgo = formatPublishDate(deal.publish_date);
   const hasImage = !!deal.image && !imageError;
 

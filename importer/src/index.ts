@@ -4,7 +4,6 @@ dotenv.config({ path: "../.env" });
 import Parser from "rss-parser";
 import { createClient } from "@supabase/supabase-js";
 
-// customFields exposes raw content:encoded without rss-parser's HTML sanitization
 const parser = new Parser({
   customFields: { item: [["content:encoded", "contentEncoded"]] },
 });
@@ -32,12 +31,6 @@ const LANG: Record<string, string> = {
   "fly4free.com": "en",
 };
 
-// ---------------------------------------------------------------------------
-// Article content extraction (density-based, server-side)
-// ---------------------------------------------------------------------------
-
-
-
 async function fetchOgImage(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
@@ -57,21 +50,20 @@ async function fetchOgImage(url: string): Promise<string | null> {
 
 async function resolveImages(deals: any[]): Promise<void> {
   const missing = deals.filter((d) => !d.image && d.link);
-  // Fetch og:image in batches of 5 concurrent requests
   for (let i = 0; i < missing.length; i += 5) {
     const batch = missing.slice(i, i + 5);
     const images = await Promise.all(batch.map((d) => fetchOgImage(d.link)));
-    images.forEach((img, j) => {
-      if (img) batch[j].image = img;
-    });
+    images.forEach((img, j) => { if (img) batch[j].image = img; });
   }
 }
 
 async function run() {
+  const startTime = Date.now();
+
   console.log("=================================");
-  console.log("SkyCatchy RSS Import started");
+  console.log("SkyCatchy RSS Import");
   console.log(new Date().toISOString());
-  console.log("=================================");
+  console.log("=================================\n");
 
   const { data: sources, error: sourceError } = await supabase
     .from("sources")
@@ -79,22 +71,29 @@ async function run() {
     .eq("active", true);
 
   if (sourceError) {
-    console.error(sourceError);
-    return;
+    console.error("❌ FATAL: Cannot fetch sources from DB:", sourceError.message);
+    process.exit(1);
   }
 
-  let imported = 0;
+  if (!sources || sources.length === 0) {
+    console.log("⚠️  No active sources found.");
+    process.exit(0);
+  }
 
-  for (const source of sources ?? []) {
-    console.log("");
-    console.log("Processing:", source.name);
+  console.log(`Sources: ${sources.length}\n`);
 
+  let totalInserted = 0;
+  let totalItems = 0;
+  const failed: string[] = [];
+  const succeeded: string[] = [];
+
+  for (const source of sources) {
     try {
       const feed = await parser.parseURL(source.rss_url);
+      const items = feed.items ?? [];
+      totalItems += items.length;
 
-      const deals: any[] = [];
-
-      for (const item of feed.items) {
+      const deals: any[] = items.map((item) => {
         const image =
           (item as any).enclosure?.url ||
           (item as any).image ||
@@ -102,7 +101,7 @@ async function run() {
           (item as any)["media:thumbnail"]?.$?.url ||
           null;
 
-        deals.push({
+        return {
           name: item.title ?? "",
           description: item.contentSnippet ?? item.summary ?? "",
           link: item.link ?? "",
@@ -111,42 +110,67 @@ async function run() {
           publish_date: (item as any).isoDate ?? item.pubDate ?? null,
           created_at: new Date().toISOString(),
           lang: LANG[source.name] ?? "en",
-        });
+        };
+      }).filter((d) => d.link && d.name);
+
+      if (deals.length === 0) {
+        succeeded.push(source.name);
+        continue;
       }
 
-      if (deals.length === 0) continue;
-
-      // Fetch og:image for any deal missing an image
       await resolveImages(deals);
 
-      // Upsert without content first — fast path, skips duplicates
       const { error: insertError, data: inserted } = await supabase
         .from("deals")
         .upsert(deals, { onConflict: "link", ignoreDuplicates: true })
-        .select("id,link");
+        .select("id");
 
       if (insertError) {
-        console.error(insertError);
+        console.error(`  ❌ ${source.name}: DB upsert failed: ${insertError.message}`);
+        failed.push(source.name);
         continue;
       }
 
       const newCount = (inserted ?? []).length;
-      imported += newCount;
-      console.log(`✅ Inserted ${newCount} new deals from ${source.name}`);
+      totalInserted += newCount;
+      succeeded.push(source.name);
 
-      if (newCount === 0) continue;
+      if (newCount > 0) {
+        console.log(`  ✅ ${source.name}: ${items.length} items, ${newCount} new`);
+      }
 
-    } catch (err) {
-      console.log(`❌ Feed failed: ${source.name}`);
-      console.error(err);
+    } catch (err: any) {
+      const status = err?.status ? ` (HTTP ${err.status})` : "";
+      console.error(`  ❌ ${source.name}: ${err?.message ?? err}${status}`);
+      failed.push(source.name);
     }
   }
 
-  console.log("");
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+  console.log("\n=================================");
+  console.log("Import Summary");
   console.log("=================================");
-  console.log("Import finished");
-  console.log("Imported deals:", imported);
-  console.log("=================================");
+  console.log(`Sources:   ${sources.length} total, ${succeeded.length} ok, ${failed.length} failed`);
+  console.log(`RSS items: ${totalItems}`);
+  console.log(`New deals: ${totalInserted}`);
+  console.log(`Duration:  ${elapsed}s`);
+
+  if (failed.length > 0) {
+    console.log(`\nFailed sources:`);
+    failed.forEach((s) => console.log(`  - ${s}`));
+  }
+
+  console.log("=================================\n");
+
+  // Exit with failure if ALL sources failed or DB is unreachable
+  if (failed.length > 0 && succeeded.length === 0) {
+    console.error("❌ All sources failed.");
+    process.exit(1);
+  }
 }
 
-run();
+run().catch((err) => {
+  console.error("❌ FATAL:", err);
+  process.exit(1);
+});

@@ -26,6 +26,8 @@ async function restFetch(path: string, options: RequestInit = {}) {
 }
 
 async function run() {
+  const startTime = Date.now();
+
   console.log("=================================");
   console.log("SkyCatchy Database Cleanup");
   console.log(new Date().toISOString());
@@ -37,50 +39,44 @@ async function run() {
     process.exit(1);
   }
 
-  console.log("Base URL:", supabaseUrl);
-
-  // Connectivity test — GET /rest/v1/ returns OpenAPI spec (200) if key is valid
-  const pingRes = await fetch(`${supabaseUrl}/rest/v1/`, { headers: baseHeaders });
-  console.log("Ping /rest/v1/ →", pingRes.status);
-
-  // Table test — no filters
-  const tableRes = await fetch(`${supabaseUrl}/rest/v1/deals?select=id&limit=1`, { headers: baseHeaders });
-  console.log("GET deals limit 1 →", tableRes.status, await tableRes.text().then(t => t.substring(0, 120)));
-
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
   console.log("Cutoff:", cutoff);
 
-  // Fetch old deal IDs
   const selectRes = await restFetch(`deals?select=id&created_at=lt.${cutoff}`);
   const oldDeals: { id: string }[] = await selectRes.json();
 
   if (oldDeals.length === 0) {
     console.log("✅ No deals to clean up");
-    console.log("\n=================================");
-    console.log("Cleanup complete");
-    console.log("=================================");
+    console.log(`Duration: ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     return;
   }
 
-  console.log(`Found ${oldDeals.length} old deals to delete`);
+  console.log(`Found ${oldDeals.length} deals older than ${RETENTION_DAYS} days`);
   const oldIds = oldDeals.map((d) => d.id);
 
-  // Batch deletes — URLs get too long with 1000+ UUIDs at once
+  let deletedTranslations = 0;
+  let deletedDeals = 0;
   const BATCH = 100;
+
   for (let i = 0; i < oldIds.length; i += BATCH) {
     const ids = oldIds.slice(i, i + BATCH).join(",");
+
     await restFetch(`deal_translations?deal_id=in.(${ids})`, {
       method: "DELETE",
       headers: { Prefer: "return=minimal" },
     });
+    deletedTranslations += Math.min(BATCH, oldIds.length - i);
+
     await restFetch(`deals?id=in.(${ids})`, {
       method: "DELETE",
       headers: { Prefer: "return=minimal" },
     });
-    console.log(`Deleted batch ${Math.floor(i / BATCH) + 1}/${Math.ceil(oldIds.length / BATCH)}`);
+    deletedDeals += Math.min(BATCH, oldIds.length - i);
   }
 
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`✅ Deleted ${oldIds.length} deals and their translations`);
+  console.log(`Duration: ${elapsed}s`);
   console.log("\n=================================");
   console.log("Cleanup complete");
   console.log("=================================");
