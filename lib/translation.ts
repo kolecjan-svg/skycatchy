@@ -23,8 +23,8 @@ export function getDisplayDeal(deal: Deal, deviceLocale: string): DealDisplay {
     (t) => t.lang === lang
   );
 
-  // publish_date is NULL in production DB; fall back to created_at for display
-  const displayDate = deal.publish_date || deal.created_at;
+  // Always use created_at for display so mobile matches website (skycatchy.com uses created_at)
+  const displayDate = deal.created_at;
 
   if (translation) {
     return {
